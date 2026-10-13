@@ -223,6 +223,24 @@ The following metrics are available:
     be a few MiB) will currently result in that inherited value being reported instead.
   - Windows: Currently not supported.
 
+- **`memory_peak_footprint`**: Lifetime peak physical footprint charged to the directly
+  launched process, in bytes. Available on macOS only, without an intermediate shell.
+
+  This uses macOS physical-footprint accounting, not USS or private RSS. Ordinary clean
+  file-backed pages, such as executable and shared-library pages, are excluded; compressed
+  private memory and accounting overhead are included. Shared mappings follow the OS's
+  charging rules and are not necessarily excluded. Allocations freed before exit still
+  contribute to the lifetime peak. Descendant processes are not included, so launcher
+  scripts that spawn the actual workload should not be used to measure its footprint.
+
+  Select it explicitly, for example:
+  ```sh
+  hyperfine --metrics memory_peak_resident:MiB,memory_peak_footprint:MiB './program'
+  ```
+  It is included in `--metrics=all` where available, but does not change the default metrics.
+  A failed query leaves the metric unavailable, never substituting RSS or zero. Explicitly
+  selecting an unavailable metric is an error; the `all` preset skips unavailable metrics.
+
 - **`cpu_cycles`**: CPU cycles consumed.
 
   - Linux: Includes threads and child processes, but excludes kernel and hypervisor execution.
@@ -282,7 +300,9 @@ You can use the `--export-markdown <file>` option to create tables like the foll
 #### JSON
 
 The JSON export includes all available metrics listed in [Choosing metrics and units](#choosing-metrics-and-units)
-for each measured run (excluding warmup runs).
+for each measured run (excluding warmup runs). On macOS, direct benchmark runs also collect
+`memory_peak_footprint` regardless of display selection; its values and summary use bytes.
+Unavailable metrics are omitted, including footprint for commands run through a shell.
 
 The JSON output is useful if you want to analyze the benchmark results in more detail. The
 [`scripts/`](https://github.com/sharkdp/hyperfine/tree/master/scripts) folder includes a lot

@@ -253,9 +253,20 @@ metrics in the order listed below.
 .IP
 Time metrics \fBtime_wall_clock\fR, \fBtime_cpu\fR, \fBtime_user\fR, and \fBtime_system\fR
 accept units \fBns\fR, \fBus\fR, \fBms\fR, \fBs\fR, \fBmin\fR, and \fBh\fR.
-Peak memory, \fBmemory_peak_resident\fR, accepts \fBB\fR, \fBkB\fR,
+Peak memory, \fBmemory_peak_resident\fR and \fBmemory_peak_footprint\fR, accepts \fBB\fR, \fBkB\fR,
 \fBMB\fR, \fBGB\fR, \fBTB\fR, \fBKiB\fR, \fBMiB\fR, \fBGiB\fR,
 and \fBTiB\fR.
+.IP
+\fBmemory_peak_footprint\fR measures the lifetime peak physical footprint charged
+to the directly launched process on macOS, without an intermediate shell.
+Ordinary clean file-backed pages are excluded; compressed private memory and
+accounting overhead are included. Shared mappings follow macOS charging rules.
+This is not USS or private RSS, and does not include descendant processes.
+Allocations freed before exit still contribute to the peak.
+It is included in \fBall\fR where available, but not in the default metrics.
+JSON includes it for direct macOS benchmark runs regardless of display selection,
+in bytes. A failed query leaves it unavailable, never substituting RSS or zero.
+Explicit selection fails when unavailable; \fBall\fR skips unavailable metrics.
 .IP
 Counter metrics \fBcpu_cycles\fR, \fBinstructions\fR, \fBcache_references\fR,
 \fBcache_misses\fR, and \fBbranch_misses\fR accept \fBcount\fR (unscaled),
