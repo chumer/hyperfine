@@ -63,10 +63,10 @@ fn discard(output: ChildStdout) {
 /// Execute the given command and return a timing summary
 pub fn execute_and_measure(
     mut command: Command,
-    _collect_hardware_counters: bool,
+    _collect_process_metrics: bool,
 ) -> Result<Measurement> {
     #[cfg(target_os = "linux")]
-    let counters = _collect_hardware_counters.then(linux_counters::CounterGroup::new);
+    let counters = _collect_process_metrics.then(linux_counters::CounterGroup::new);
     #[cfg(not(windows))]
     let cpu_timer = self::unix_timer::CPUTimer::start();
 
@@ -93,9 +93,9 @@ pub fn execute_and_measure(
     }
 
     #[cfg(target_os = "macos")]
-    let (time_wall_clock, hardware_counters) =
-        if _collect_hardware_counters && macos_counters::wait(&mut child).is_ok() {
-            // Stop timing before querying counters, but leave the child available for wait4.
+    let (time_wall_clock, process_metrics) =
+        if _collect_process_metrics && macos_counters::wait(&mut child).is_ok() {
+            // Stop timing before querying resource usage, but leave the child available for wait4.
             (
                 Some(wallclock_timer.stop()),
                 macos_counters::read(child.id()),
@@ -113,8 +113,15 @@ pub fn execute_and_measure(
     let hardware_counters = counters
         .map(linux_counters::CounterGroup::read)
         .unwrap_or_default();
+    #[cfg(target_os = "macos")]
+    let hardware_counters = process_metrics.hardware_counters;
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let hardware_counters = Default::default();
+
+    #[cfg(target_os = "macos")]
+    let memory_peak_footprint = process_metrics.memory_peak_footprint;
+    #[cfg(not(target_os = "macos"))]
+    let memory_peak_footprint = None;
 
     Ok(Measurement {
         time_wall_clock,
@@ -122,6 +129,7 @@ pub fn execute_and_measure(
         time_user,
         time_system,
         memory_peak_resident,
+        memory_peak_footprint,
         hardware_counters,
         exit_status,
     })

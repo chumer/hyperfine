@@ -75,7 +75,7 @@ fn run_command_and_measure_common(
     options: &Options,
     command_output_policy: &CommandOutputPolicy,
     command_name: &str,
-    collect_hardware_counters: bool,
+    collect_process_metrics: bool,
 ) -> Result<Measurement> {
     let stdin = options.command_input_policy.get_stdin()?;
     let (stdout, stderr) = command_output_policy.get_stdout_stderr()?;
@@ -90,7 +90,7 @@ fn run_command_and_measure_common(
         command.env("HYPERFINE_ITERATION", value);
     }
 
-    let measurement = execute_and_measure(command, collect_hardware_counters)
+    let measurement = execute_and_measure(command, collect_process_metrics)
         .with_context(|| format!("Failed to run command '{command_name}'"))?;
 
     if !measurement.exit_status.success() {
@@ -164,6 +164,7 @@ impl Executor for RawExecutor<'_> {
             self.options,
             output_policy,
             &command.get_command_line(),
+            // Collect all available metrics for JSON, regardless of display selection.
             matches!(iteration, BenchmarkIteration::Benchmark(_)),
         )
     }
@@ -315,6 +316,7 @@ impl Executor for ShellExecutor<'_> {
             time_user: measurements.time_user_mean(),
             time_system: measurements.time_system_mean(),
             memory_peak_resident: None,
+            memory_peak_footprint: None,
             hardware_counters: Default::default(),
             exit_status: ExitStatus::default(),
         });
@@ -375,6 +377,7 @@ impl Executor for MockExecutor {
             time_user: Time::zero(),
             time_system: Time::zero(),
             memory_peak_resident: Some(Information::zero()),
+            memory_peak_footprint: None,
             hardware_counters: Default::default(),
             exit_status,
         })

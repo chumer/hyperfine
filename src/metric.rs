@@ -13,6 +13,7 @@ pub enum Metric {
     TimeUser,
     TimeSystem,
     MemoryPeakResident,
+    MemoryPeakFootprint,
     CpuCycles,
     Instructions,
     CacheReferences,
@@ -21,12 +22,13 @@ pub enum Metric {
 }
 
 impl Metric {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::TimeWallClock,
         Self::TimeCpu,
         Self::TimeUser,
         Self::TimeSystem,
         Self::MemoryPeakResident,
+        Self::MemoryPeakFootprint,
         Self::CpuCycles,
         Self::Instructions,
         Self::CacheReferences,
@@ -41,6 +43,7 @@ impl Metric {
             Self::TimeUser => "time_user",
             Self::TimeSystem => "time_system",
             Self::MemoryPeakResident => "memory_peak_resident",
+            Self::MemoryPeakFootprint => "memory_peak_footprint",
             Self::CpuCycles => "cpu_cycles",
             Self::Instructions => "instructions",
             Self::CacheReferences => "cache_references",
@@ -56,6 +59,7 @@ impl Metric {
             Self::TimeUser => "User time",
             Self::TimeSystem => "System time",
             Self::MemoryPeakResident => "Memory",
+            Self::MemoryPeakFootprint => "Peak Footprint",
             Self::CpuCycles => "CPU cycles",
             Self::Instructions => "Instructions",
             Self::CacheReferences => "Cache references",
@@ -73,6 +77,7 @@ impl Metric {
             Self::TimeUser => Some(measurement.time_user.get::<second>()),
             Self::TimeSystem => Some(measurement.time_system.get::<second>()),
             Self::MemoryPeakResident => measurement.memory_peak_resident.map(|v| v.get::<byte>()),
+            Self::MemoryPeakFootprint => measurement.memory_peak_footprint.map(|v| v.get::<byte>()),
             Self::CpuCycles => counters.cpu_cycles.map(|v| v as f64),
             Self::Instructions => counters.instructions.map(|v| v as f64),
             Self::CacheReferences => counters.cache_references.map(|v| v as f64),
@@ -88,13 +93,29 @@ impl Metric {
         )
     }
 
+    pub fn is_memory(self) -> bool {
+        matches!(self, Self::MemoryPeakResident | Self::MemoryPeakFootprint)
+    }
+
     pub fn is_counter(self) -> bool {
-        !self.is_time() && self != Self::MemoryPeakResident
+        !self.is_time() && !self.is_memory()
     }
 
     /// Reject known unsupported configurations before any commands execute.
     /// Availability that depends on permissions or hardware is checked after collection.
     pub fn ensure_available(self, shell: bool) -> Result<()> {
+        if self == Self::MemoryPeakFootprint {
+            ensure!(
+                cfg!(target_os = "macos"),
+                "Metric '{}' is only available on macOS",
+                self.name()
+            );
+            ensure!(
+                !shell,
+                "Metric '{}' is unavailable when a shell is enabled",
+                self.name()
+            );
+        }
         if self.is_counter() {
             ensure!(
                 !shell,
@@ -239,7 +260,7 @@ impl MetricSelection {
         if mean == 0.0 {
             return self.metric.base_unit();
         }
-        let units = if self.metric == Metric::MemoryPeakResident {
+        let units = if self.metric.is_memory() {
             BINARY_MEMORY_UNITS
         } else {
             self.metric.units()
@@ -469,6 +490,85 @@ mod tests {
         ] {
             assert!(MetricSelection::parse_list(invalid).is_err(), "{}", invalid);
         }
+    }
+
+    #[test]
+    fn footprint_presets_leave_defaults_unchanged() {
+        use crate::options::Options;
+
+        for (preset, shell, expected) in [
+            ("default", "none", false),
+            ("all", "none", cfg!(target_os = "macos")),
+            ("all", "default", false),
+        ] {
+            let matches = crate::cli::get_cli_arguments([
+                "hyperfine",
+                "--style=none",
+                "--metrics",
+                preset,
+                "--shell",
+                shell,
+                "true",
+            ]);
+            let options = Options::from_cli_arguments(&matches).unwrap();
+            assert_eq!(
+                options
+                    .metrics
+                    .iter()
+                    .any(|s| s.metric == Metric::MemoryPeakFootprint),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn footprint_is_an_optional_memory_metric() {
+        let metric = Metric::MemoryPeakFootprint;
+        assert!(metric.is_memory());
+        assert!(!metric.is_counter());
+        assert!(!metric.is_time());
+        assert_eq!(metric.base_unit().symbol, "B");
+        assert_eq!(
+            metric.ensure_available(false).is_ok(),
+            cfg!(target_os = "macos")
+        );
+        assert!(metric.ensure_available(true).is_err());
+
+        for unit in MEMORY_UNITS {
+            let selection =
+                MetricSelection::parse_list(&format!("memory_peak_footprint:{}", unit.symbol))
+                    .unwrap()[0];
+            assert_eq!(selection.csv_unit(), *unit);
+        }
+        assert!(MetricSelection::parse_list("memory_peak_footprint:count").is_err());
+        let selection = MetricSelection::parse_list("memory_peak_footprint").unwrap()[0];
+        assert_eq!(selection.display_unit(2_097_152.0).symbol, "MiB");
+        assert_eq!(selection.csv_unit().scale, 1.0);
+
+        let mut measurement = Measurement {
+            memory_peak_resident: Some(Information::new::<byte>(1024.0)),
+            ..Measurement::default()
+        };
+        assert_eq!(metric.value(&measurement), None);
+        let json = serde_json::to_value(&measurement).unwrap();
+        assert!(json.get("memory_peak_footprint").is_none());
+        measurement.memory_peak_footprint = Some(Information::new::<byte>(0.0));
+        assert_eq!(metric.value(&measurement), Some(0.0));
+        let json = serde_json::to_value(&measurement).unwrap();
+        assert_eq!(json["memory_peak_footprint"]["value"], 0.0);
+        assert_eq!(json["memory_peak_footprint"]["unit"], "byte");
+
+        let mut measurements = Measurements::new(vec![measurement]);
+        measurements.push(Measurement {
+            memory_peak_footprint: Some(Information::new::<byte>(2048.0)),
+            ..Measurement::default()
+        });
+        let stats = metric.summarize(&measurements).unwrap();
+        assert_eq!(stats.mean, 1024.0);
+        assert_eq!(stats.min, 0.0);
+        assert_eq!(stats.max, 2048.0);
+        measurements.push(Measurement::default());
+        assert!(metric.summarize(&measurements).is_none());
     }
 
     #[test]

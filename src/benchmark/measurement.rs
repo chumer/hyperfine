@@ -97,6 +97,13 @@ pub struct Measurement {
     )]
     pub memory_peak_resident: Option<Information>,
 
+    /// Lifetime peak physical footprint charged to the directly launched process on macOS
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_information"
+    )]
+    pub memory_peak_footprint: Option<Information>,
+
     #[serde(flatten)]
     pub hardware_counters: HardwareCounters,
 

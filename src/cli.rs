@@ -81,7 +81,7 @@ fn build_command() -> Command {
                        Metrics and optional units:\n  \
                          Time: time_wall_clock, time_cpu, time_user, time_system\n    \
                            Units: ns, us, ms, s, min, h\n  \
-                         Memory: memory_peak_resident\n    \
+                         Memory: memory_peak_resident, memory_peak_footprint (macOS, no shell)\n    \
                            Units: B, kB, MB, GB, TB, KiB, MiB, GiB, TiB\n  \
                          Counters: cpu_cycles, instructions, cache_references,\n    \
                            cache_misses, branch_misses\n    \
